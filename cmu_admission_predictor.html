@@ -4,7 +4,6 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>CMU Admission Predictor for Tabor Academy</title>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/tensorflow/3.21.0/tf.min.js"></script>
     <style>
         body {
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
@@ -83,12 +82,6 @@
             transform: translateY(-2px);
         }
         
-        .predict-btn:disabled {
-            background: #95a5a6;
-            cursor: not-allowed;
-            transform: none;
-        }
-        
         .result {
             margin-top: 30px;
             padding: 25px;
@@ -127,29 +120,23 @@
             margin-top: 0;
         }
         
-        .loading {
-            text-align: center;
-            color: #667eea;
-            font-weight: 600;
-        }
-        
         .stats {
             display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-            gap: 20px;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 15px;
             margin-top: 20px;
         }
         
         .stat-card {
             background: white;
-            padding: 20px;
+            padding: 15px;
             border-radius: 10px;
             text-align: center;
             box-shadow: 0 4px 6px rgba(0,0,0,0.1);
         }
         
         .stat-value {
-            font-size: 2em;
+            font-size: 1.5em;
             font-weight: bold;
             color: #667eea;
         }
@@ -158,19 +145,42 @@
             color: #7f8c8d;
             font-size: 0.9em;
         }
+        
+        .error {
+            color: #e74c3c;
+            font-size: 0.9em;
+            margin-top: 5px;
+        }
     </style>
 </head>
 <body>
     <div class="container">
         <div class="header">
             <h1>🎓 CMU Admission Predictor</h1>
-            <p>Tabor Academy - Deep Learning Model</p>
+            <p>Tabor Academy - Statistical Model</p>
         </div>
         
         <div class="training-info">
             <h3>Model Information</h3>
-            <p>This neural network was trained on historical CMU admission data from Tabor Academy students. The model analyzes SAT/ACT scores, WGPA, decision plan, and SCS application status to predict admission chances.</p>
-            <div id="modelStats" class="stats"></div>
+            <p>This predictor analyzes historical CMU admission data from Tabor Academy students using statistical patterns from 25 applications.</p>
+            <div class="stats">
+                <div class="stat-card">
+                    <div class="stat-value">25</div>
+                    <div class="stat-label">Applications</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value">7</div>
+                    <div class="stat-label">Accepted</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value">6</div>
+                    <div class="stat-label">Waitlisted</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value">12</div>
+                    <div class="stat-label">Denied</div>
+                </div>
+            </div>
         </div>
         
         <form id="predictionForm">
@@ -178,12 +188,14 @@
                 <label for="satScore">SAT/ACT Score:</label>
                 <input type="number" id="satScore" min="1200" max="1600" step="10" required 
                        placeholder="Enter SAT score (1200-1600) or ACT score (30-36)">
+                <div id="satError" class="error"></div>
             </div>
             
             <div class="form-group">
                 <label for="wgpa">Weighted GPA:</label>
                 <input type="number" id="wgpa" min="3.0" max="5.0" step="0.01" required 
                        placeholder="Enter weighted GPA (3.0-5.0)">
+                <div id="wgpaError" class="error"></div>
             </div>
             
             <div class="form-group">
@@ -193,6 +205,7 @@
                     <option value="RD">Regular Decision (RD)</option>
                     <option value="ED">Early Decision (ED)</option>
                 </select>
+                <div id="planError" class="error"></div>
             </div>
             
             <div class="form-group">
@@ -202,11 +215,11 @@
                     <option value="yes">Yes - Applying to SCS</option>
                     <option value="no">No - Not applying to SCS</option>
                 </select>
+                <div id="scsError" class="error"></div>
             </div>
             
-            <button type="submit" class="predict-btn" id="predictBtn" disabled>
-                <span id="btnText">Training Model...</span>
-                <span id="loadingText" class="loading" style="display: none;">Analyzing...</span>
+            <button type="submit" class="predict-btn" id="predictBtn">
+                Predict Admission Chance
             </button>
         </form>
         
@@ -238,218 +251,122 @@
             {sat: 1460, wgpa: 3.68, plan: 'RD', decision: 'DENIED'},
             {sat: 1380, wgpa: 3.79, plan: 'RD', decision: 'DENIED'},
             {sat: 1310, wgpa: 3.79, plan: 'RD', decision: 'WAITLISTED'},
-            {sat: 1530, wgpa: 4.16, plan: 'RD', decision: 'DENIED'}, // ACT 34 ≈ 1530 SAT
+            {sat: 1530, wgpa: 4.16, plan: 'RD', decision: 'DENIED'},
             {sat: 1530, wgpa: 3.89, plan: 'RD', decision: 'WAITLISTED'},
             {sat: 1530, wgpa: 3.83, plan: 'RD', decision: 'DENIED'}
         ];
 
-        let model;
-        let isModelTrained = false;
-
-        // Normalize features
-        function normalizeFeatures(sat, wgpa, plan) {
-            const normalizedSat = Math.max(0, Math.min(1, (sat - 1200) / 400)); // Normalize SAT to 0-1 range
-            const normalizedWgpa = Math.max(0, Math.min(1, (wgpa - 3.0) / 2.0)); // Normalize WGPA to 0-1 range
-            const planValue = plan === 'ED' ? 1 : 0; // ED = 1, RD = 0
-            return [normalizedSat, normalizedWgpa, planValue];
-        }
-
-        // Convert decision to numerical value
-        function decisionToNumber(decision) {
-            switch(decision) {
-                case 'ACCEPTED': return 1;
-                case 'WAITLISTED': return 0.5;
-                case 'DENIED': return 0;
-                default: return 0;
+        // Convert ACT to SAT
+        function convertActToSat(score) {
+            if (score <= 36) {
+                const actToSat = {
+                    36: 1590, 35: 1560, 34: 1530, 33: 1500, 32: 1470,
+                    31: 1440, 30: 1410, 29: 1380, 28: 1350, 27: 1320
+                };
+                return actToSat[score] || Math.round(score * 44 + 590);
             }
+            return score;
         }
 
-        // Create and train the model
-        async function createAndTrainModel() {
-            try {
-                // Wait for TensorFlow to be ready
-                await tf.ready();
-                
-                // Prepare training data
-                const inputs = trainingData.map(d => normalizeFeatures(d.sat, d.wgpa, d.plan));
-                const outputs = trainingData.map(d => [decisionToNumber(d.decision)]);
-
-                const xs = tf.tensor2d(inputs);
-                const ys = tf.tensor2d(outputs);
-
-                // Create model
-                model = tf.sequential({
-                    layers: [
-                        tf.layers.dense({
-                            inputShape: [3],
-                            units: 16,
-                            activation: 'relu'
-                        }),
-                        tf.layers.dropout({rate: 0.2}),
-                        tf.layers.dense({
-                            units: 8,
-                            activation: 'relu'
-                        }),
-                        tf.layers.dropout({rate: 0.2}),
-                        tf.layers.dense({
-                            units: 1,
-                            activation: 'sigmoid'
-                        })
-                    ]
-                });
-
-                // Compile model
-                model.compile({
-                    optimizer: tf.train.adam(0.001),
-                    loss: 'meanSquaredError',
-                    metrics: ['mse']
-                });
-
-                // Train model
-                await model.fit(xs, ys, {
-                    epochs: 100,
-                    validationSplit: 0.2,
-                    shuffle: true,
-                    verbose: 0
-                });
-
-                // Clean up tensors
-                xs.dispose();
-                ys.dispose();
-
-                isModelTrained = true;
-                displayModelStats();
-                
-            } catch (error) {
-                console.error('Model training error:', error);
-                throw error;
-            }
-        }
-
-        function displayModelStats() {
-            const accepted = trainingData.filter(d => d.decision === 'ACCEPTED').length;
-            const waitlisted = trainingData.filter(d => d.decision === 'WAITLISTED').length;
-            const denied = trainingData.filter(d => d.decision === 'DENIED').length;
-            const edApplicants = trainingData.filter(d => d.plan === 'ED').length;
+        // Statistical prediction model
+        function predictAdmission(sat, wgpa, plan, scs) {
+            // Convert ACT to SAT if needed
+            const convertedSat = convertActToSat(sat);
             
-            const statsHtml = `
-                <div class="stat-card">
-                    <div class="stat-value">${trainingData.length}</div>
-                    <div class="stat-label">Total Applications</div>
-                </div>
-                <div class="stat-card">
-                    <div class="stat-value">${accepted}</div>
-                    <div class="stat-label">Accepted</div>
-                </div>
-                <div class="stat-card">
-                    <div class="stat-value">${waitlisted}</div>
-                    <div class="stat-label">Waitlisted</div>
-                </div>
-                <div class="stat-card">
-                    <div class="stat-value">${denied}</div>
-                    <div class="stat-label">Denied</div>
-                </div>
-            `;
-            
-            document.getElementById('modelStats').innerHTML = statsHtml;
-        }
-
-        // Make prediction
-        async function predict(sat, wgpa, plan, scs) {
-            if (!isModelTrained) {
-                throw new Error('Model not trained yet');
-            }
-
-            try {
-                if (model) {
-                    // Use neural network model
-                    const normalizedInputs = normalizeFeatures(sat, wgpa, plan);
-                    const prediction = model.predict(tf.tensor2d([normalizedInputs]));
-                    const probabilityArray = await prediction.data();
-                    let probability = probabilityArray[0];
-                    prediction.dispose();
-                    
-                    // Adjust probability based on SCS application
-                    if (scs === 'yes') {
-                        probability *= 0.85;
-                    }
-                    
-                    return Math.max(0, Math.min(1, probability));
-                } else {
-                    // Fallback statistical model
-                    return statisticalPredict(sat, wgpa, plan, scs);
-                }
-            } catch (error) {
-                console.error('Neural network prediction failed, using statistical model:', error);
-                return statisticalPredict(sat, wgpa, plan, scs);
-            }
-        }
-
-        // Fallback statistical prediction
-        function statisticalPredict(sat, wgpa, plan, scs) {
-            // Calculate base probability based on historical data patterns
+            // Base probability calculation
             let probability = 0;
             
-            // SAT score factor
-            if (sat >= 1570) probability += 0.4;
-            else if (sat >= 1540) probability += 0.3;
-            else if (sat >= 1520) probability += 0.25;
-            else if (sat >= 1500) probability += 0.2;
-            else if (sat >= 1450) probability += 0.15;
+            // SAT score factor (based on training data patterns)
+            if (convertedSat >= 1580) probability += 0.45;
+            else if (convertedSat >= 1570) probability += 0.4;
+            else if (convertedSat >= 1540) probability += 0.35;
+            else if (convertedSat >= 1520) probability += 0.3;
+            else if (convertedSat >= 1500) probability += 0.25;
+            else if (convertedSat >= 1460) probability += 0.2;
+            else if (convertedSat >= 1430) probability += 0.15;
             else probability += 0.1;
             
             // WGPA factor
-            if (wgpa >= 4.3) probability += 0.3;
-            else if (wgpa >= 4.1) probability += 0.25;
-            else if (wgpa >= 4.0) probability += 0.2;
-            else if (wgpa >= 3.9) probability += 0.15;
+            if (wgpa >= 4.3) probability += 0.35;
+            else if (wgpa >= 4.15) probability += 0.3;
+            else if (wgpa >= 4.0) probability += 0.25;
+            else if (wgpa >= 3.95) probability += 0.2;
+            else if (wgpa >= 3.85) probability += 0.15;
             else probability += 0.1;
             
-            // Plan factor (ED slight boost)
-            if (plan === 'ED') probability += 0.05;
+            // Decision plan factor (ED has slight advantage)
+            if (plan === 'ED') probability += 0.08;
             
-            // SCS factor (more competitive)
-            if (scs === 'yes') probability *= 0.8;
+            // SCS factor (more competitive, reduces chances)
+            if (scs === 'yes') probability *= 0.75;
             
             return Math.max(0, Math.min(1, probability));
         }
 
-        // Handle form submission
-        document.getElementById('predictionForm').addEventListener('submit', async (e) => {
-            e.preventDefault();
+        // Clear all errors
+        function clearErrors() {
+            document.getElementById('satError').textContent = '';
+            document.getElementById('wgpaError').textContent = '';
+            document.getElementById('planError').textContent = '';
+            document.getElementById('scsError').textContent = '';
+        }
+
+        // Validate form
+        function validateForm() {
+            clearErrors();
+            let isValid = true;
             
             const sat = parseFloat(document.getElementById('satScore').value);
             const wgpa = parseFloat(document.getElementById('wgpa').value);
             const plan = document.getElementById('decisionPlan').value;
             const scs = document.getElementById('scsApplication').value;
             
-            // Convert ACT to SAT if needed (more accurate conversion)
-            let convertedSat = sat;
-            if (sat <= 36) {
-                // ACT to SAT conversion table approximation
-                const actToSat = {
-                    34: 1530, 35: 1560, 36: 1590,
-                    33: 1500, 32: 1470, 31: 1440,
-                    30: 1410, 29: 1380, 28: 1350
-                };
-                convertedSat = actToSat[sat] || (sat * 44 + 590);
+            if (!sat || (sat < 30 && sat < 1200) || (sat > 36 && sat > 1600)) {
+                document.getElementById('satError').textContent = 'Please enter a valid SAT score (1200-1600) or ACT score (30-36)';
+                isValid = false;
             }
             
-            const btn = document.getElementById('predictBtn');
-            const btnText = document.getElementById('btnText');
-            const loadingText = document.getElementById('loadingText');
+            if (!wgpa || wgpa < 3.0 || wgpa > 5.0) {
+                document.getElementById('wgpaError').textContent = 'Please enter a valid weighted GPA (3.0-5.0)';
+                isValid = false;
+            }
             
-            btn.disabled = true;
-            btnText.style.display = 'none';
-            loadingText.style.display = 'inline';
+            if (!plan) {
+                document.getElementById('planError').textContent = 'Please select a decision plan';
+                isValid = false;
+            }
+            
+            if (!scs) {
+                document.getElementById('scsError').textContent = 'Please select SCS application status';
+                isValid = false;
+            }
+            
+            return isValid;
+        }
+
+        // Handle form submission
+        document.getElementById('predictionForm').addEventListener('submit', function(e) {
+            e.preventDefault();
+            
+            console.log('Form submitted');
+            
+            if (!validateForm()) {
+                console.log('Form validation failed');
+                return;
+            }
+            
+            const sat = parseFloat(document.getElementById('satScore').value);
+            const wgpa = parseFloat(document.getElementById('wgpa').value);
+            const plan = document.getElementById('decisionPlan').value;
+            const scs = document.getElementById('scsApplication').value;
+            
+            console.log('Input values:', { sat, wgpa, plan, scs });
             
             try {
-                if (!isModelTrained) {
-                    throw new Error('Model is still training. Please wait a moment.');
-                }
-                
-                const probability = await predict(convertedSat, wgpa, plan, scs);
+                const probability = predictAdmission(sat, wgpa, plan, scs);
                 const percentage = Math.round(probability * 100);
+                
+                console.log('Prediction result:', percentage + '%');
                 
                 const resultDiv = document.getElementById('result');
                 let resultClass, resultText;
@@ -469,7 +386,9 @@
                 resultDiv.innerHTML = `
                     <div>${resultText}</div>
                     <div style="font-size: 0.9em; margin-top: 10px; opacity: 0.8;">
-                        ${scs === 'yes' ? 'SCS applications are highly competitive' : 'Consider your intended major and fit'}
+                        Based on historical Tabor Academy data
+                        ${scs === 'yes' ? ' • SCS applications are highly competitive' : ''}
+                        ${plan === 'ED' ? ' • Early Decision provides slight advantage' : ''}
                     </div>
                 `;
                 resultDiv.style.display = 'block';
@@ -480,38 +399,10 @@
                 resultDiv.className = 'result low';
                 resultDiv.innerHTML = 'Error making prediction. Please try again.';
                 resultDiv.style.display = 'block';
-            } finally {
-                btn.disabled = false;
-                btnText.style.display = 'inline';
-                loadingText.style.display = 'none';
             }
         });
 
-        // Initialize the model when page loads
-        window.addEventListener('load', async () => {
-            // Add a small delay to ensure TensorFlow is fully loaded
-            setTimeout(async () => {
-                try {
-                    console.log('Starting model training...');
-                    console.log('TensorFlow version:', tf.version.tfjs);
-                    await createAndTrainModel();
-                    console.log('Model trained successfully');
-                    document.getElementById('predictBtn').disabled = false;
-                    document.getElementById('btnText').textContent = 'Predict Admission Chance';
-                } catch (error) {
-                    console.error('Error training model:', error);
-                    document.getElementById('predictBtn').disabled = true;
-                    document.getElementById('btnText').textContent = 'Model Training Failed - Check Console';
-                    
-                    // Fallback: Simple statistical model
-                    console.log('Falling back to statistical model...');
-                    isModelTrained = true;
-                    displayModelStats();
-                    document.getElementById('predictBtn').disabled = false;
-                    document.getElementById('btnText').textContent = 'Predict Admission Chance (Statistical Model)';
-                }
-            }, 1000);
-        });
+        console.log('CMU Admission Predictor loaded and ready');
     </script>
 </body>
 </html>
